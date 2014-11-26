@@ -20,6 +20,22 @@ void init_matrix(double* a, int row, int col)
 	}
 }
 
+void multiply_matrix(double* a, double* b, double* c,
+ int n,int y,int m)
+{
+	double tmp;
+	int k,i,j;
+	for(k = 0; k < y; k++) {
+    for(i = 0; i < n; i++) {
+        tmp = a[i*y+k];
+        for(j = 0; j < m; j++) {
+            c[i*n+j] = c[i*n+j] + tmp * b[k*m+j];
+        }
+    }
+	}
+
+}
+
 void print_matrix(double* m, int row, int col)
 {
   int i, j = 0;
@@ -84,10 +100,12 @@ int main(int argc, char *argv[])
 
 	} /* End of the validation block */
 	  myn = n/sqrt(num_procs);
-	  a = malloc(n*n*sizeof(double));
+
+	  a = malloc(myn*myn*sizeof(double));
 	  a_all =malloc(n*n*sizeof(double));
-	  b = malloc(n*n*sizeof(double));
-	  c = malloc(n*n*sizeof(double));
+	  b = malloc(myn*myn*sizeof(double));
+	  b_all =malloc(n*n*sizeof(double));
+	  c = malloc(myn*myn*sizeof(double));
 	  MPI_Barrier(MPI_COMM_WORLD);
 
 	  my_start_row = my_rank*myn/n;
@@ -95,32 +113,51 @@ int main(int argc, char *argv[])
 	  printf("myrank %d startrow %d startcol%d myn%d\n", my_rank,my_start_row,my_start_col,myn);
 
 	  //init_matrix a
+	  for(i=0; i<myn*myn; i++)
+		{
+			a[i] = 1;
+			b[i] = 1;
+		}
+
+
+	MPI_Barrier(MPI_COMM_WORLD);
+	//gather the whole row for a, whole colom for b
+	for(i=0;i<num_procs;i++)
+	{
+		MPI_Gather(a, myn*myn, MPI_DOUBLE, a_all, myn*myn, MPI_DOUBLE, i, MPI_COMM_WORLD);
+		MPI_Gather(b, myn*myn, MPI_DOUBLE, b_all, myn*myn, MPI_DOUBLE, i, MPI_COMM_WORLD);
+	}
 	
-	  for(i=0; i<myn*n; i++)
-		{
-			a[i] = 0.0;
-			b[i] = 0.0;
-		}
-	  for(i=0; i<myn; i++)
-		{
-			for(j=0;j<n;j++)
-			{
-				if(j>=my_start_col && j<my_start_col+myn)
-				{
-					a[(i+(my_rank*myn/n)*myn)*n+j] = 1;
-					b[(i+(my_rank*myn/n)*myn)*n+j] = 2;
-				}
-			}
-		}
 
+	//print_matrix(a,myn,myn);
+	
+	{
+		print_matrix(a_all,n,n);
+		print_matrix(b_all,n,n);
+	}
+
+	//print_matrix(&a_all[(my_rank/myn)*n],myn,n);
+	//print_matrix(&b_all[(my_rank*myn)*n],n,myn);
 
 	MPI_Barrier(MPI_COMM_WORLD);
-	MPI_Gather(a, n*n, MPI_DOUBLE, a_all, n*n, MPI_DOUBLE, my_rank, MPI_COMM_WORLD);
-	//MPI_Gather(b, my_n, MPI_DOUBLE, b_all, my_n, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-	MPI_Barrier(MPI_COMM_WORLD);
 
-	print_matrix(a_all,n,n);
-	//print_matrix(b,n,n);
+		print_matrix(&a_all[(my_rank*myn/n)/n],myn,n);
+		print_matrix(&b_all[(my_rank*myn/n)/n],n,myn);
+		multiply_matrix(&a_all[(my_rank*myn/n)/n], &b_all[(my_rank*myn/n)/n], c, myn,n,myn);
+
+		print_matrix(c,myn,myn);
+
+
+
+	if(my_rank == 0)
+	{
+		c_all = malloc(n*n*sizeof(double));
+		
+	}
+	MPI_Gather(c, myn*myn, MPI_DOUBLE, c_all, myn*myn, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	
+	if(my_rank == 0)
+	print_matrix(c_all,n,n);
 
 	MPI_Finalize();
 	exit(0);
