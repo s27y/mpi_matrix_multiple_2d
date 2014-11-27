@@ -58,15 +58,12 @@
 
  int main(int argc, char *argv[])
  {
- 	double* a;
- 	double* b;
  	double* c;
 
  	double* a_row;
  	double* tmp_a_row;
  	double* b_col;
  	double* c_all;
- 	double buf[2];
 
  	MPI_Comm row_comm, col_comm, col_comm_1, col_comm_2, comm_world;
 
@@ -132,18 +129,18 @@
  	printf("%8d %8d %8d %8d %8d\n",world_rank,irow,jcol,row_rank,col_rank);
  	MPI_Barrier(MPI_COMM_WORLD);
 
- 	a = malloc(myn*myn*sizeof(double));
  	a_row =malloc(myn*n*sizeof(double));
- 	b = malloc(myn*myn*sizeof(double));
  	b_col =malloc(n*myn*sizeof(double));
  	c = malloc(n*n*sizeof(double));
+ 	if(world_rank == 0)
+ 	{
+ 		c_all = malloc(n*n*sizeof(double));
+ 	}
  	MPI_Barrier(MPI_COMM_WORLD);
 
 	  //init_matrix a
  	for(i=0; i<myn*myn; i++)
  	{
-
-
  		if(world_rank%myn == 1)
  			a_row[i+n] = world_rank;
  		else
@@ -154,7 +151,6 @@
  			b_col[i+n] = world_rank*2;
  		else
  			b_col[i] = world_rank*2;
-
  	}
 
  	{
@@ -162,12 +158,10 @@
  		print_matrix(b_col,n,myn);
  	}
 
- 	buf[col_rank] = col_rank+1;
 //printf("%f %f\n", buf[0],buf[1]);
  	MPI_Barrier(MPI_COMM_WORLD);
 	//gather the whole row for a, whole colom for b
- 	for(i=0;i<myn;i++)
- 		MPI_Bcast(&buf[i], 1, MPI_DOUBLE, i, col_comm);
+ 
 
 
  	for(i=0;i<myn;i++)
@@ -202,19 +196,9 @@
 
 
 
- 	if(world_rank == 0)
- 	{
- 		c_all = malloc(n*n*sizeof(double));
-
- 	}
  	MPI_Barrier(MPI_COMM_WORLD);
 
- 		//MPI_Gather(c, n*n, MPI_DOUBLE, c_all, n*n, MPI_DOUBLE, 0, MPI_COMM_WORLD);
- 		//MPI_Bcast(c, n*n, MPI_DOUBLE, 1, comm_world);
  	MPI_Reduce(c, c_all,n*n, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-
-
- 	MPI_Barrier(MPI_COMM_WORLD);
  	if(world_rank ==0)
  	{
  		print_matrix(c_all,n,n);
