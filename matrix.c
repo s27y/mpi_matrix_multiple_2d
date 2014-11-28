@@ -15,7 +15,7 @@
  	for (i=0; i<row; i++) {
  		printf("\n\t| ");
  		for (j=0; j<col; j++)
- 			printf("%2f ", m[i*col+j]);
+ 			printf("%2d ", (int)m[i*col+j]);
  		printf("|");
  	}
  	printf("\n");
@@ -31,9 +31,8 @@
  		for(i = 0; i < n; i++) {
  			tmp = a[i*y+k];
  			for(j = 0; j < m; j++) {
- 				// the offset is used to find out the relative position of the sub-matrix in the whole matrix
- 				row_offset = (my_rank/n)*n;
- 				col_offset = (my_rank%n)*n;
+ 				row_offset = (my_rank/2)*n;
+ 				col_offset = (my_rank%2)*n;
  				c[(i+row_offset)*y+(j+col_offset)] = c[(i+row_offset)*y+(j+col_offset)] + tmp * b[k*m+j];
  			}
  		}
@@ -58,12 +57,15 @@
 
  int main(int argc, char *argv[])
  {
+ 	double* a;
+ 	double* b;
  	double* c;
 
  	double* a_row;
  	double* tmp_a_row;
  	double* b_col;
  	double* c_all;
+ 	double buf[2];
 
  	MPI_Comm row_comm, col_comm, col_comm_1, col_comm_2, comm_world;
 
@@ -109,10 +111,10 @@
 
 	} /* End of the validation block */
  	myn = n/sqrt(num_procs);
+ 	int sqrt_num_procs = sqrt(num_procs);
 
-
- 	irow = world_rank/myn;
- 	jcol = world_rank%myn;
+ 	irow = world_rank/sqrt_num_procs;
+ 	jcol = world_rank%sqrt_num_procs;
  	comm_world = MPI_COMM_WORLD;
 
  	MPI_Comm_split(comm_world, irow, jcol, &row_comm);
@@ -129,59 +131,58 @@
  	printf("%8d %8d %8d %8d %8d\n",world_rank,irow,jcol,row_rank,col_rank);
  	MPI_Barrier(MPI_COMM_WORLD);
 
+ 	a = malloc(myn*myn*sizeof(double));
  	a_row =malloc(myn*n*sizeof(double));
+ 	b = malloc(myn*myn*sizeof(double));
  	b_col =malloc(n*myn*sizeof(double));
  	c = malloc(n*n*sizeof(double));
- 	if(world_rank == 0)
- 	{
- 		c_all = malloc(n*n*sizeof(double));
- 	}
  	MPI_Barrier(MPI_COMM_WORLD);
 
 	  //init_matrix a
  	for(i=0; i<myn*myn; i++)
  	{
- 		if(world_rank%myn == 1)
- 			a_row[i+n] = world_rank;
+
+		if(world_rank%sqrt_num_procs == 1)
+ 			a_row[i+myn*myn] = 1.0;
  		else
- 			a_row[i] = world_rank;
+ 			a_row[i] = 1.0;
 
 
- 		if(world_rank/myn == 1)
- 			b_col[i+n] = world_rank*2;
+ 		if(world_rank/sqrt_num_procs == 1)
+ 			b_col[i+myn*myn] = 2.0;
  		else
- 			b_col[i] = world_rank*2;
+ 			b_col[i] = 2.0;
+
  	}
 
  	{
- 		print_matrix(a_row,myn,n);
- 		print_matrix(b_col,n,myn);
+ 		//print out the inital sub matrix
+ 		//print_matrix(a_row,myn,n);
+ 		//print_matrix(b_col,n,myn);
  	}
-
-//printf("%f %f\n", buf[0],buf[1]);
- 	MPI_Barrier(MPI_COMM_WORLD);
-	//gather the whole row for a, whole colom for b
- 
-
-
- 	for(i=0;i<myn;i++)
- 	{
- 		MPI_Bcast(&a_row[i*n], n, MPI_DOUBLE, i, row_comm);
- 		MPI_Bcast(&b_col[i*n], n, MPI_DOUBLE, i, col_comm);
- 	}
-
 
  	MPI_Barrier(MPI_COMM_WORLD);
 
 
-	//print_matrix(a,myn,myn);
+
+
+ 	for(i=0;i<sqrt_num_procs;i++)
+ 	{
+ 		MPI_Bcast(&a_row[i*myn*myn], myn*myn, MPI_DOUBLE, i, row_comm);
+ 		MPI_Bcast(&b_col[i*myn*myn], myn*myn, MPI_DOUBLE, i, col_comm);
+ 	}
+
+
+ 	MPI_Barrier(MPI_COMM_WORLD);
+
+
 
  	{
- 		printf("%s\n", "after boardcast");
+ 		//printf("%s\n", "after boardcast");
  		tmp_a_row = malloc(n*myn*sizeof(double));
  		trans_matrix(a_row, tmp_a_row, n, myn);
  		a_row = tmp_a_row;
-
+ 		// the row and col for each process
  		print_matrix(a_row,myn,n);
  		print_matrix(b_col,n,myn);
  	}
@@ -196,12 +197,20 @@
 
 
 
+ 	if(world_rank == 0)
+ 	{
+ 		c_all = malloc(n*n*sizeof(double));
+
+ 	}
  	MPI_Barrier(MPI_COMM_WORLD);
 
- 	MPI_Reduce(c, c_all,n*n, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
- 	if(world_rank ==0)
+ 		MPI_Reduce(c, c_all,n*n, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+
+
+MPI_Barrier(MPI_COMM_WORLD);
+	if(world_rank ==0)
  	{
- 		print_matrix(c_all,n,n);
+		print_matrix(c_all,n,n);
  	}
  	
 
