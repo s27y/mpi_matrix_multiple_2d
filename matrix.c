@@ -9,6 +9,34 @@
 #include <stdio.h>
 #include <math.h>
 
+#include "io.c"
+
+#define MPI_TIME_OUTPUT_FILENAME "out_mpi_time.csv"
+#define MPI_RESULT_OUTPUT_FILENAME "out_mpi_result.csv"
+
+ void write_data_to_file(char *fn, int n, double d)
+ {
+ 	FILE *fp;
+ 	fp = fopen(fn,"a");
+ 	fprintf(fp, "%d,%lf\n", n, d);
+ 	fclose(fp);
+ }
+
+
+ void deleteOutputFile(char *fn)
+ {
+ 	int status;
+ 	
+ 	status = remove(fn);
+ 	
+ 	if( status == 0 )
+ 		printf("%s file deleted successfully.\n",fn);
+ 	else
+ 	{
+ 		printf("Unable to delete the file\n");
+ 		perror("Error");
+ 	}
+ }
  void print_matrix(double* m, int row, int col)
  {
  	int i, j = 0;
@@ -65,17 +93,13 @@
  	double* tmp_a_row;
  	double* b_col;
  	double* c_all;
- 	double buf[2];
-
- 	MPI_Comm row_comm, col_comm, col_comm_1, col_comm_2, comm_world;
-
  	double start_time, end_time;
- 	int world_rank,row_rank,col_rank, num_procs, n;
-
  	int myn;
  	int i,j,irow,jcol;
 
- 	int my_start_row,my_start_col;
+ 	MPI_Comm row_comm, col_comm, comm_world;
+ 	int world_rank,row_rank,col_rank, num_procs, n;
+
 	/* Initialize MPI environment */ 
  	MPI_Init(&argc, &argv);
 	/* Get rank of each MPI process */
@@ -127,8 +151,8 @@
  	MPI_Comm_rank(col_comm, &col_rank);
 
  	// check rank
- 	printf("     world_rank     irow     jcol   row_rank   col_rank\n");
- 	printf("%8d %8d %8d %8d %8d\n",world_rank,irow,jcol,row_rank,col_rank);
+ 	//printf("     world_rank     irow     jcol   row_rank   col_rank\n");
+ 	//printf("%8d %8d %8d %8d %8d\n",world_rank,irow,jcol,row_rank,col_rank);
  	MPI_Barrier(MPI_COMM_WORLD);
 
  	a = malloc(myn*myn*sizeof(double));
@@ -136,17 +160,20 @@
  	b = malloc(myn*myn*sizeof(double));
  	b_col =malloc(n*myn*sizeof(double));
  	c = malloc(n*n*sizeof(double));
+ 	if(world_rank == 0)
+ 	{
+ 		c_all = malloc(n*n*sizeof(double));
+ 	}
  	MPI_Barrier(MPI_COMM_WORLD);
 
 	  //init_matrix a
  	for(i=0; i<myn*myn; i++)
  	{
 
-		if(world_rank%sqrt_num_procs == 1)
+ 		if(world_rank%sqrt_num_procs == 1)
  			a_row[i+myn*myn] = 1.0;
  		else
  			a_row[i] = 1.0;
-
 
  		if(world_rank/sqrt_num_procs == 1)
  			b_col[i+myn*myn] = 2.0;
@@ -154,7 +181,11 @@
  			b_col[i] = 2.0;
 
  	}
+ 	/* Start time on process zero */
+ 	if (world_rank == 0)
+ 		start_time = MPI_Wtime(); 
 
+ 	
  	{
  		//print out the inital sub matrix
  		//print_matrix(a_row,myn,n);
@@ -163,19 +194,13 @@
 
  	MPI_Barrier(MPI_COMM_WORLD);
 
-
-
-
  	for(i=0;i<sqrt_num_procs;i++)
  	{
  		MPI_Bcast(&a_row[i*myn*myn], myn*myn, MPI_DOUBLE, i, row_comm);
  		MPI_Bcast(&b_col[i*myn*myn], myn*myn, MPI_DOUBLE, i, col_comm);
  	}
 
-
  	MPI_Barrier(MPI_COMM_WORLD);
-
-
 
  	{
  		//printf("%s\n", "after boardcast");
@@ -183,40 +208,44 @@
  		trans_matrix(a_row, tmp_a_row, n, myn);
  		a_row = tmp_a_row;
  		// the row and col for each process
- 		print_matrix(a_row,myn,n);
- 		print_matrix(b_col,n,myn);
+ 		//print_matrix(a_row,myn,n);
+ 		//print_matrix(b_col,n,myn);
  	}
 
 	//print_matrix(&a_ro[(world_rank/myn)*n],myn,n);
 	//print_matrix(&b_col[(world_rank*myn)*n],n,myn);
-
- 	MPI_Barrier(MPI_COMM_WORLD);
  	multiply_matrix(a_row, b_col, c, myn,n,myn,world_rank);
 
- 	print_matrix(c,n,n);
+ 	//print_matrix(c,n,n);
 
-
-
- 	if(world_rank == 0)
- 	{
- 		c_all = malloc(n*n*sizeof(double));
-
- 	}
  	MPI_Barrier(MPI_COMM_WORLD);
 
- 		MPI_Reduce(c, c_all,n*n, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-
-
-MPI_Barrier(MPI_COMM_WORLD);
-	if(world_rank ==0)
+	/* End time on process zero */
+ 	if (world_rank == 0)
  	{
-		print_matrix(c_all,n,n);
+ 		end_time = MPI_Wtime();
+ 		printf("Multiplication takes %f sec\n", end_time- start_time);
+ 		write_data_to_file(MPI_TIME_OUTPUT_FILENAME, n, end_time- start_time);
  	}
- 	
+
+ 	MPI_Reduce(c, c_all,n*n, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+
+ 	MPI_Barrier(MPI_COMM_WORLD);
+ 	if(world_rank ==0)
+ 	{
+		//print_matrix(c_all,n,n);
+ 		write_data_to_file(MPI_RESULT_OUTPUT_FILENAME,n, c_all[n*n-1]);
+ 		printf("%f\n", c_all[n*n-1]);
+ 	}
+
+ 	free(a_row);
+ 	free(b_col);
+ 	free(c);
+ 	if(world_rank==0)
+ 		free(c_all);
 
  	MPI_Finalize();
  	exit(0);
-
  }
 
 
